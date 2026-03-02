@@ -1,38 +1,89 @@
 import { useEffect, useState } from 'react';
 
-type Health = {
-  ok: boolean;
-  service: string;
-  time: string;
+type CrateItem = {
+  _id: string;
+  title: string;
+  artist: string;
+  createdAt?: string;
 };
 
+const API_URL = import.meta.env.VITE_API_URL as string;
+
 export default function App() {
-  const [data, setData] = useState<Health | null>(null);
-  const [error, setError] = useState<string>('');
+  const [items, setItems] = useState<CrateItem[]>([]);
+  const [title, setTitle] = useState('');
+  const [artist, setArtist] = useState('');
+  const [error, setError] = useState('');
+
+  async function loadItems() {
+    setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/crate-items`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as CrateItem[];
+      setItems(data);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load');
+    }
+  }
+
+  async function addItem(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+
+    try {
+      const res = await fetch(`${API_URL}/api/crate-items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, artist })
+      });
+
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || `HTTP ${res.status}`);
+      }
+
+      setTitle('');
+      setArtist('');
+      await loadItems();
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to add');
+    }
+  }
 
   useEffect(() => {
-    const apiUrl = import.meta.env.VITE_API_URL as string;
-
-    fetch(`${apiUrl}/health`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()) as Health;
-      })
-      .then(setData)
-      .catch((e) => setError(e?.message ?? 'Unknown error'));
+    loadItems();
   }, []);
 
   return (
-    <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif', maxWidth: 720 }}>
       <h1>Crate Logic</h1>
 
-      {!data && !error && <p>Loading API health…</p>}
-      {error && <p>❌ API error: {error}</p>}
-      {data && (
-        <pre style={{ padding: 12, border: '1px solid #ddd', borderRadius: 8 }}>
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      )}
+      <form onSubmit={addItem} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Title"
+          style={{ flex: 1, padding: 8 }}
+        />
+        <input
+          value={artist}
+          onChange={(e) => setArtist(e.target.value)}
+          placeholder="Artist"
+          style={{ flex: 1, padding: 8 }}
+        />
+        <button type="submit">Add</button>
+      </form>
+
+      {error && <p style={{ color: 'crimson' }}>❌ {error}</p>}
+
+      <ul style={{ paddingLeft: 18 }}>
+        {items.map((i) => (
+          <li key={i._id}>
+            <strong>{i.title}</strong> — {i.artist}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
