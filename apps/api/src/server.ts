@@ -2,11 +2,29 @@ import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { CrateItemModel } from './models/CrateItem';
+import { CrateItemModel } from './models/CrateItem.js';
 
 dotenv.config();
 
 const app = express();
+
+type CrateItemDoc = {
+  _id: unknown;
+  title: string;
+  artist: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function toCrateItemDto(doc: any) {
+  return {
+    id: String(doc._id),
+    title: doc.title,
+    artist: doc.artist,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt
+  };
+}
 
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
@@ -21,7 +39,7 @@ app.get('/health', (_req, res) => {
 
 app.get('/api/crate-items', async (_req, res) => {
   const items = await CrateItemModel.find().sort({ createdAt: -1 }).lean();
-  res.json(items);
+  res.json(items.map(toCrateItemDto));
 });
 
 app.post('/api/crate-items', async (req, res) => {
@@ -32,7 +50,7 @@ app.post('/api/crate-items', async (req, res) => {
   }
 
   const created = await CrateItemModel.create({ title, artist });
-  res.status(201).json(created);
+  res.status(201).json(toCrateItemDto(created));
 });
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;
