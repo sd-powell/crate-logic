@@ -5,12 +5,13 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm run dev -ws",
+    "dev": "concurrently -n api,client \"npm run dev -w apps/api\" \"npm run dev -w apps/client\"",
     "build": "npm run build -ws",
     "lint": "npm run lint -ws",
     "typecheck": "npm run typecheck -ws"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "eslint": "^10.0.2",
     "prettier": "^3.8.1",
     "typescript": "^5.9.3"
