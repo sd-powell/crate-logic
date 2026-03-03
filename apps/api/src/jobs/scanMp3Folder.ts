@@ -28,21 +28,18 @@ async function walk(dir: string): Promise<string[]> {
   return files;
 }
 
-function extractYearGenre(rootFolder: string, filePath: string) {
-  // Assumes: rootFolder/Year/Genre/track.mp3
-  const rel = path.relative(rootFolder, filePath);
-  const parts = rel.split(path.sep);
-
-  const yearFolder = parts.length >= 2 ? parts[0] : undefined;
-  const genreFolder = parts.length >= 2 ? parts[1] : undefined;
-
-  return { yearFolder, genreFolder };
-}
-
 function pickFirstString(v: unknown): string | undefined {
   if (typeof v === 'string' && v.trim()) return v.trim();
   if (Array.isArray(v) && typeof v[0] === 'string') return v[0].trim();
   return undefined;
+}
+
+function normaliseCamelotKey(key?: string) {
+  if (!key) return undefined;
+  const k = key.trim().toUpperCase();
+  const m = k.match(/^0?(\d{1,2})(A|B)$/);
+  if (!m) return k;
+  return `${Number(m[1])}${m[2]}`; // strips leading zero
 }
 
 /**
@@ -110,9 +107,7 @@ export async function scanMp3Folder({ rootFolder }: ScanOptions) {
       const title = metadata.common.title ?? undefined;
       const artist = metadata.common.artist ?? undefined;
       const bpm = typeof metadata.common.bpm === 'number' ? metadata.common.bpm : undefined;
-      const key = extractKey(metadata);
-
-      const { yearFolder, genreFolder } = extractYearGenre(rootFolder, filePath);
+      const key = normaliseCamelotKey(extractKey(metadata));
 
       await TrackFileModel.updateOne(
         { filePath },
@@ -123,9 +118,7 @@ export async function scanMp3Folder({ rootFolder }: ScanOptions) {
             artist,
             bpm,
             key,
-            source: 'mixedinkey',
-            yearFolder,
-            genreFolder
+            source: 'mixedinkey'
           }
         },
         { upsert: true }

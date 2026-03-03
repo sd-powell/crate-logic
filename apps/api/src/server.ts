@@ -28,6 +28,32 @@ function toCrateItemDto(doc: any) {
   };
 }
 
+function normaliseCamelotKey(key?: string) {
+  if (!key) return undefined;
+
+  const k = key.trim().toUpperCase();
+  // Match things like 02A, 2A, 07B, 12A
+  const m = k.match(/^0?(\d{1,2})(A|B)$/);
+  if (!m) return k; // leave as-is if unexpected
+
+  const num = String(Number(m[1])); // strips leading zero
+  return `${num}${m[2]}`;
+}
+
+function toTrackFileDto(doc: any) {
+  return {
+    id: String(doc._id),
+    filePath: doc.filePath,
+    title: doc.title,
+    artist: doc.artist,
+    bpm: doc.bpm,
+    key: doc.key,
+    source: doc.source,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt
+  };
+}
+
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 
@@ -68,8 +94,7 @@ app.post('/api/scan-mp3', async (req, res) => {
 
 app.get('/api/track-files', async (_req, res) => {
   const files = await TrackFileModel.find().sort({ updatedAt: -1 }).limit(200).lean();
-  // optional: map _id → id like before if you want
-  res.json(files);
+  res.json(files.map(toTrackFileDto));
 });
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;

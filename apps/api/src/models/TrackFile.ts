@@ -11,8 +11,6 @@ const trackFileSchema = new mongoose.Schema(
     key: { type: String, trim: true },
 
     source: { type: String, default: 'mixedinkey' }, // where bpm/key came from
-    yearFolder: { type: String, trim: true },        // derived from folder structure
-    genreFolder: { type: String, trim: true }        // derived from folder structure
   },
   { timestamps: true }
 );
