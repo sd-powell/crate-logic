@@ -3,6 +3,8 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import { CrateItemModel } from './models/CrateItem.js';
+import { scanMp3Folder } from './jobs/scanMp3Folder.js';
+import { TrackFileModel } from './models/TrackFile.js';
 
 dotenv.config();
 
@@ -51,6 +53,23 @@ app.post('/api/crate-items', async (req, res) => {
 
   const created = await CrateItemModel.create({ title, artist });
   res.status(201).json(toCrateItemDto(created));
+});
+
+app.post('/api/scan-mp3', async (req, res) => {
+  const { rootFolder } = req.body as { rootFolder?: string };
+
+  if (!rootFolder) {
+    return res.status(400).json({ error: 'rootFolder is required' });
+  }
+
+  const result = await scanMp3Folder({ rootFolder });
+  res.json(result);
+});
+
+app.get('/api/track-files', async (_req, res) => {
+  const files = await TrackFileModel.find().sort({ updatedAt: -1 }).limit(200).lean();
+  // optional: map _id → id like before if you want
+  res.json(files);
 });
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;
