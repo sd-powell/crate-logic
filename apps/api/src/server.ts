@@ -8,6 +8,8 @@ import { TrackFileModel } from './models/TrackFile.js';
 import { DiscogsReleaseModel } from './models/DiscogsRelease.js';
 import { fetchDiscogsRelease } from './lib/discogs.js';
 import { mapDiscogsRelease } from './lib/mapDiscogsRelease.js';
+import { TrackMatchModel } from './models/TrackMatch.js';
+import { matchTrackFileToRelease } from './lib/matchTrackFileToRelease.js';
 
 dotenv.config();
 
@@ -71,6 +73,21 @@ function toDiscogsReleaseDto(doc: any) {
     released: doc.released,
     thumb: doc.thumb,
     tracklist: doc.tracklist,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt
+  };
+}
+
+function toTrackMatchDto(doc: any) {
+  return {
+    id: String(doc._id),
+    trackFileId: String(doc.trackFileId),
+    discogsReleaseId: doc.discogsReleaseId,
+    discogsTrackPosition: doc.discogsTrackPosition,
+    discogsTrackTitle: doc.discogsTrackTitle,
+    confidence: doc.confidence,
+    status: doc.status,
+    matchType: doc.matchType,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt
   };
@@ -156,6 +173,63 @@ app.post('/api/scan-mp3', async (req, res) => {
 
   const result = await scanMp3Folder({ rootFolder });
   res.json(result);
+});
+
+app.post('/api/track-files/:trackFileId/match', async (req, res) => {
+  const { trackFileId } = req.params;
+
+  const trackFile = await TrackFileModel.findById(trackFileId).lean();
+  if (!trackFile) {
+    return res.status(404).json({ error: 'TrackFile not found' });
+  }
+
+  const releases = await DiscogsReleaseModel.find().lean();
+
+  let bestMatch: any = null;
+
+  for (const release of releases) {
+    const match = matchTrackFileToRelease(trackFile, release);
+    if (!match) continue;
+
+    if (!bestMatch || match.confidence > bestMatch.confidence) {
+      bestMatch = match;
+    }
+  }
+
+  if (!bestMatch) {
+    return res.status(404).json({ error: 'No suitable match found' });
+  }
+
+  const saved = await TrackMatchModel.findOneAndUpdate(
+    {
+      trackFileId: trackFile._id,
+      discogsReleaseId: bestMatch.discogsReleaseId,
+      discogsTrackPosition: bestMatch.discogsTrackPosition ?? null
+    },
+    {
+      $set: {
+        trackFileId: trackFile._id,
+        discogsReleaseId: bestMatch.discogsReleaseId,
+        discogsTrackPosition: bestMatch.discogsTrackPosition,
+        discogsTrackTitle: bestMatch.discogsTrackTitle,
+        confidence: bestMatch.confidence,
+        status: 'suggested',
+        matchType: bestMatch.matchType
+      }
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  ).lean();
+
+  res.json(toTrackMatchDto(saved));
+});
+
+app.get('/api/track-matches', async (_req, res) => {
+  const matches = await TrackMatchModel.find()
+    .sort({ updatedAt: -1 })
+    .limit(200)
+    .lean();
+
+  res.json(matches.map(toTrackMatchDto));
 });
 
 app.get('/api/track-files', async (_req, res) => {
