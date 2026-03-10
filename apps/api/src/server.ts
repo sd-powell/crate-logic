@@ -6,7 +6,11 @@ import { CrateItemModel } from './models/CrateItem.js';
 import { scanMp3Folder } from './jobs/scanMp3Folder.js';
 import { TrackFileModel } from './models/TrackFile.js';
 import { DiscogsReleaseModel } from './models/DiscogsRelease.js';
-import { fetchDiscogsRelease } from './lib/discogs.js';
+import {
+  fetchDiscogsRelease,
+  fetchAllDiscogsCollectionReleaseIds,
+  paceDiscogsRequest
+} from './lib/discogs.js';
 import { mapDiscogsRelease } from './lib/mapDiscogsRelease.js';
 import { TrackMatchModel } from './models/TrackMatch.js';
 import { matchTrackFileToRelease } from './lib/matchTrackFileToRelease.js';
@@ -131,6 +135,93 @@ app.get('/api/crate-items', async (_req, res) => {
     res.json(items.map(toCrateItemDto));
   } catch (err) {
     console.error('Failed to fetch crate items:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/discogs/collection/import', async (_req, res) => {
+  try {
+    const username = process.env.DISCOGS_USERNAME;
+
+    if (!username) {
+      return res.status(500).json({ error: 'DISCOGS_USERNAME is not set' });
+    }
+
+    const releaseIds = await fetchAllDiscogsCollectionReleaseIds(username);
+
+    let imported = 0;
+    let failed = 0;
+    const failures: Array<{ releaseId: number; error: string }> = [];
+
+    for (const releaseId of releaseIds) {
+      try {
+        await paceDiscogsRequest();
+
+        const discogsData = await fetchDiscogsRelease(releaseId);
+        const mapped = mapDiscogsRelease(discogsData);
+
+        await DiscogsReleaseModel.findOneAndUpdate(
+          { discogsReleaseId: releaseId },
+          { $set: mapped },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        imported++;
+        console.log(`Imported Discogs release ${releaseId} (${imported}/${releaseIds.length})`);
+      } catch (err) {
+        failed++;
+        failures.push({
+          releaseId,
+          error: err instanceof Error ? err.message : 'Unknown error'
+        });
+      }
+    }
+
+    res.json({
+      username,
+      totalReleaseIds: releaseIds.length,
+      imported,
+      failed,
+      failures: failures.slice(0, 20)
+    });
+  } catch (err) {
+    console.error('Failed to import Discogs collection:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/discogs/releases/count', async (_req, res) => {
+  try {
+    const count = await DiscogsReleaseModel.countDocuments();
+    res.json({ count });
+  } catch (err) {
+    console.error('Failed to count Discogs releases:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/discogs/releases/:releaseId', async (req, res) => {
+  try {
+    const releaseId = Number(req.params.releaseId);
+
+    if (!Number.isInteger(releaseId) || releaseId <= 0) {
+      return res.status(400).json({ error: 'releaseId must be a positive integer' });
+    }
+
+    const deleted = await DiscogsReleaseModel.findOneAndDelete({
+      discogsReleaseId: releaseId
+    });
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Release not found' });
+    }
+
+    res.json({
+      message: 'Release deleted',
+      discogsReleaseId: releaseId
+    });
+  } catch (err) {
+    console.error('Failed to delete Discogs release:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
