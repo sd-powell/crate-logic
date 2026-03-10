@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 import { CrateItemModel } from './models/CrateItem.js';
 import { scanMp3Folder } from './jobs/scanMp3Folder.js';
 import { TrackFileModel } from './models/TrackFile.js';
+import { DiscogsReleaseModel } from './models/DiscogsRelease.js';
+import { fetchDiscogsRelease } from './lib/discogs.js';
+import { mapDiscogsRelease } from './lib/mapDiscogsRelease.js';
 
 dotenv.config();
 
@@ -53,6 +56,69 @@ function toTrackFileDto(doc: any) {
     updatedAt: doc.updatedAt
   };
 }
+
+function toDiscogsReleaseDto(doc: any) {
+  return {
+    id: String(doc._id),
+    discogsReleaseId: doc.discogsReleaseId,
+    title: doc.title,
+    year: doc.year,
+    artists: doc.artists,
+    labels: doc.labels,
+    genres: doc.genres,
+    styles: doc.styles,
+    country: doc.country,
+    released: doc.released,
+    thumb: doc.thumb,
+    tracklist: doc.tracklist,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt
+  };
+}
+
+app.post('/api/discogs/releases/:releaseId/import', async (req, res) => {
+  const releaseId = Number(req.params.releaseId);
+
+  if (!Number.isInteger(releaseId) || releaseId <= 0) {
+    return res.status(400).json({ error: 'releaseId must be a positive integer' });
+  }
+
+  const discogsData = await fetchDiscogsRelease(releaseId);
+  const mapped = mapDiscogsRelease(discogsData);
+
+  const doc = await DiscogsReleaseModel.findOneAndUpdate(
+    { discogsReleaseId: releaseId },
+    { $set: mapped },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  ).lean();
+
+  res.json(toDiscogsReleaseDto(doc));
+});
+
+app.get('/api/discogs/releases', async (_req, res) => {
+  const docs = await DiscogsReleaseModel.find()
+    .sort({ updatedAt: -1 })
+    .limit(100)
+    .lean();
+
+  res.json(docs.map(toDiscogsReleaseDto));
+});
+
+app.get('/api/discogs/releases/:releaseId', async (req, res) => {
+  const releaseId = Number(req.params.releaseId);
+
+  if (!Number.isInteger(releaseId) || releaseId <= 0) {
+    return res.status(400).json({ error: 'releaseId must be a positive integer' });
+  }
+
+  const doc = await DiscogsReleaseModel.findOne({ discogsReleaseId: releaseId }).lean();
+
+  if (!doc) {
+    return res.status(404).json({ error: 'Discogs release not found in local database' });
+  }
+
+  res.json(toDiscogsReleaseDto(doc));
+});
 
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
