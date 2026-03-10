@@ -15,13 +15,8 @@ dotenv.config();
 
 const app = express();
 
-type CrateItemDoc = {
-  _id: unknown;
-  title: string;
-  artist: string;
-  createdAt: Date;
-  updatedAt: Date;
-};
+app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(express.json());
 
 function toCrateItemDto(doc: any) {
   return {
@@ -31,18 +26,6 @@ function toCrateItemDto(doc: any) {
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt
   };
-}
-
-function normaliseCamelotKey(key?: string) {
-  if (!key) return undefined;
-
-  const k = key.trim().toUpperCase();
-  // Match things like 02A, 2A, 07B, 12A
-  const m = k.match(/^0?(\d{1,2})(A|B)$/);
-  if (!m) return k; // leave as-is if unexpected
-
-  const num = String(Number(m[1])); // strips leading zero
-  return `${num}${m[2]}`;
 }
 
 function toTrackFileDto(doc: any) {
@@ -93,101 +76,12 @@ function toTrackMatchDto(doc: any) {
   };
 }
 
-app.post('/api/discogs/releases/:releaseId/import', async (req, res) => {
-  const releaseId = Number(req.params.releaseId);
-
-  if (!Number.isInteger(releaseId) || releaseId <= 0) {
-    return res.status(400).json({ error: 'releaseId must be a positive integer' });
-  }
-
-  const discogsData = await fetchDiscogsRelease(releaseId);
-  const mapped = mapDiscogsRelease(discogsData);
-
-  const doc = await DiscogsReleaseModel.findOneAndUpdate(
-    { discogsReleaseId: releaseId },
-    { $set: mapped },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  ).lean();
-
-  res.json(toDiscogsReleaseDto(doc));
-});
-
-app.get('/api/discogs/releases', async (_req, res) => {
-  const docs = await DiscogsReleaseModel.find()
-    .sort({ updatedAt: -1 })
-    .limit(100)
-    .lean();
-
-  res.json(docs.map(toDiscogsReleaseDto));
-});
-
-app.get('/api/discogs/releases/:releaseId', async (req, res) => {
-  const releaseId = Number(req.params.releaseId);
-
-  if (!Number.isInteger(releaseId) || releaseId <= 0) {
-    return res.status(400).json({ error: 'releaseId must be a positive integer' });
-  }
-
-  const doc = await DiscogsReleaseModel.findOne({ discogsReleaseId: releaseId }).lean();
-
-  if (!doc) {
-    return res.status(404).json({ error: 'Discogs release not found in local database' });
-  }
-
-  res.json(toDiscogsReleaseDto(doc));
-});
-
-app.use(cors({ origin: 'http://localhost:5173' }));
-app.use(express.json());
-
-app.get('/', (_req, res) => {
-  res.send('Crate Logic API is running. Try /health');
-});
-
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'api', time: new Date().toISOString() });
-});
-
-app.get('/api/crate-items', async (_req, res) => {
-  const items = await CrateItemModel.find().sort({ createdAt: -1 }).lean();
-  res.json(items.map(toCrateItemDto));
-});
-
-app.post('/api/crate-items', async (req, res) => {
-  const { title, artist } = req.body as { title?: string; artist?: string };
-
-  if (!title || !artist) {
-    return res.status(400).json({ error: 'title and artist are required' });
-  }
-
-  const created = await CrateItemModel.create({ title, artist });
-  res.status(201).json(toCrateItemDto(created));
-});
-
-app.post('/api/scan-mp3', async (req, res) => {
-  const { rootFolder } = req.body as { rootFolder?: string };
-
-  if (!rootFolder) {
-    return res.status(400).json({ error: 'rootFolder is required' });
-  }
-
-  const result = await scanMp3Folder({ rootFolder });
-  res.json(result);
-});
-
-app.post('/api/track-files/:trackFileId/match', async (req, res) => {
-  const { trackFileId } = req.params;
-
-  const trackFile = await TrackFileModel.findById(trackFileId).lean();
-  if (!trackFile) {
-    return res.status(404).json({ error: 'TrackFile not found' });
-  }
-
-  const releases = await DiscogsReleaseModel.find().lean();
+async function findAndSaveBestMatchForTrackFile(trackFile: any, releases?: any[]) {
+  const availableReleases = releases ?? (await DiscogsReleaseModel.find().lean());
 
   let bestMatch: any = null;
 
-  for (const release of releases) {
+  for (const release of availableReleases) {
     const match = matchTrackFileToRelease(trackFile, release);
     if (!match) continue;
 
@@ -197,7 +91,7 @@ app.post('/api/track-files/:trackFileId/match', async (req, res) => {
   }
 
   if (!bestMatch) {
-    return res.status(404).json({ error: 'No suitable match found' });
+    return null;
   }
 
   const saved = await TrackMatchModel.findOneAndUpdate(
@@ -220,21 +114,198 @@ app.post('/api/track-files/:trackFileId/match', async (req, res) => {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   ).lean();
 
-  res.json(toTrackMatchDto(saved));
+  return saved;
+}
+
+app.get('/', (_req, res) => {
+  res.send('Crate Logic API is running. Try /health');
 });
 
-app.get('/api/track-matches', async (_req, res) => {
-  const matches = await TrackMatchModel.find()
-    .sort({ updatedAt: -1 })
-    .limit(200)
-    .lean();
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'api', time: new Date().toISOString() });
+});
 
-  res.json(matches.map(toTrackMatchDto));
+app.get('/api/crate-items', async (_req, res) => {
+  try {
+    const items = await CrateItemModel.find().sort({ createdAt: -1 }).lean();
+    res.json(items.map(toCrateItemDto));
+  } catch (err) {
+    console.error('Failed to fetch crate items:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/crate-items', async (req, res) => {
+  try {
+    const { title, artist } = req.body as { title?: string; artist?: string };
+
+    if (!title || !artist) {
+      return res.status(400).json({ error: 'title and artist are required' });
+    }
+
+    const created = await CrateItemModel.create({ title, artist });
+    res.status(201).json(toCrateItemDto(created));
+  } catch (err) {
+    console.error('Failed to create crate item:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/scan-mp3', async (req, res) => {
+  try {
+    const { rootFolder } = req.body as { rootFolder?: string };
+
+    if (!rootFolder) {
+      return res.status(400).json({ error: 'rootFolder is required' });
+    }
+
+    const result = await scanMp3Folder({ rootFolder });
+    res.json(result);
+  } catch (err) {
+    console.error('Failed to scan MP3 folder:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.get('/api/track-files', async (_req, res) => {
-  const files = await TrackFileModel.find().sort({ updatedAt: -1 }).limit(200).lean();
-  res.json(files.map(toTrackFileDto));
+  try {
+    const files = await TrackFileModel.find()
+      .sort({ updatedAt: -1 })
+      .limit(200)
+      .lean();
+
+    res.json(files.map(toTrackFileDto));
+  } catch (err) {
+    console.error('Failed to fetch track files:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/track-files/:trackFileId/match', async (req, res) => {
+  try {
+    const { trackFileId } = req.params;
+
+    const trackFile = await TrackFileModel.findById(trackFileId).lean();
+    if (!trackFile) {
+      return res.status(404).json({ error: 'TrackFile not found' });
+    }
+
+    const saved = await findAndSaveBestMatchForTrackFile(trackFile);
+
+    if (!saved) {
+      return res.status(404).json({ error: 'No suitable match found' });
+    }
+
+    res.json(toTrackMatchDto(saved));
+  } catch (err) {
+    console.error('Failed to match track file:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/track-files/match-all', async (_req, res) => {
+  try {
+    const trackFiles = await TrackFileModel.find().lean();
+    const releases = await DiscogsReleaseModel.find().lean();
+
+    let matched = 0;
+    let unmatched = 0;
+    const results: any[] = [];
+
+    for (const trackFile of trackFiles) {
+      const saved = await findAndSaveBestMatchForTrackFile(trackFile, releases);
+
+      if (saved) {
+        matched++;
+        results.push(toTrackMatchDto(saved));
+      } else {
+        unmatched++;
+      }
+    }
+
+    res.json({
+      totalTrackFiles: trackFiles.length,
+      matched,
+      unmatched,
+      results
+    });
+  } catch (err) {
+    console.error('Failed to bulk match track files:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/track-matches', async (_req, res) => {
+  try {
+    const matches = await TrackMatchModel.find()
+      .sort({ updatedAt: -1 })
+      .limit(200)
+      .lean();
+
+    res.json(matches.map(toTrackMatchDto));
+  } catch (err) {
+    console.error('Failed to fetch track matches:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/discogs/releases/:releaseId/import', async (req, res) => {
+  try {
+    const releaseId = Number(req.params.releaseId);
+
+    if (!Number.isInteger(releaseId) || releaseId <= 0) {
+      return res.status(400).json({ error: 'releaseId must be a positive integer' });
+    }
+
+    const discogsData = await fetchDiscogsRelease(releaseId);
+    const mapped = mapDiscogsRelease(discogsData);
+
+    const doc = await DiscogsReleaseModel.findOneAndUpdate(
+      { discogsReleaseId: releaseId },
+      { $set: mapped },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    res.json(toDiscogsReleaseDto(doc));
+  } catch (err) {
+    console.error('Failed to import Discogs release:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/discogs/releases', async (_req, res) => {
+  try {
+    const docs = await DiscogsReleaseModel.find()
+      .sort({ updatedAt: -1 })
+      .limit(100)
+      .lean();
+
+    res.json(docs.map(toDiscogsReleaseDto));
+  } catch (err) {
+    console.error('Failed to fetch Discogs releases:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/discogs/releases/:releaseId', async (req, res) => {
+  try {
+    const releaseId = Number(req.params.releaseId);
+
+    if (!Number.isInteger(releaseId) || releaseId <= 0) {
+      return res.status(400).json({ error: 'releaseId must be a positive integer' });
+    }
+
+    const doc = await DiscogsReleaseModel.findOne({ discogsReleaseId: releaseId }).lean();
+
+    if (!doc) {
+      return res.status(404).json({ error: 'Discogs release not found in local database' });
+    }
+
+    res.json(toDiscogsReleaseDto(doc));
+  } catch (err) {
+    console.error('Failed to fetch Discogs release:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;
