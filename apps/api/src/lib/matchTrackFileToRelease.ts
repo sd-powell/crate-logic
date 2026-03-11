@@ -1,13 +1,18 @@
 import { normaliseText } from './normaliseText.js';
 
+const AUTO_MATCH_THRESHOLD = 0.8;
+
 type TrackFileLike = {
   title?: string;
   artist?: string;
+  durationSeconds?: number;
 };
 
 type DiscogsTrackLike = {
   position?: string;
   title?: string;
+  duration?: string;
+  durationSeconds?: number;
   artists?: Array<{ name?: string }>;
 };
 
@@ -31,6 +36,7 @@ export function matchTrackFileToRelease(
 ): MatchResult {
   const fileTitle = normaliseText(trackFile.title);
   const fileArtist = normaliseText(trackFile.artist);
+  const fileDuration = trackFile.durationSeconds;
 
   if (!fileTitle || !release.tracklist?.length) {
     return null;
@@ -67,19 +73,40 @@ export function matchTrackFileToRelease(
         matchType === 'none' ? 'exact-artist' : `${matchType}+artist`;
     }
 
+    // Duration bonus if both sides have it
+    if (
+      typeof fileDuration === 'number' &&
+      typeof track.durationSeconds === 'number'
+    ) {
+      const diff = Math.abs(fileDuration - track.durationSeconds);
+
+      if (diff <= 2) {
+        score += 0.2;
+        matchType += '+duration-close';
+      } else if (diff <= 5) {
+        score += 0.1;
+        matchType += '+duration-near';
+      } else if (diff >= 20) {
+        score -= 0.15;
+        matchType += '+duration-mismatch';
+      }
+    }
+
+    score = Math.max(0, Math.min(1, Number(score.toFixed(2))));
+
     if (score > bestScore) {
       bestScore = score;
       bestMatch = {
         discogsReleaseId: release.discogsReleaseId,
         discogsTrackPosition: track.position,
         discogsTrackTitle: track.title,
-        confidence: Number(score.toFixed(2)),
+        confidence: score,
         matchType
       };
     }
   }
 
-  if (bestScore < 0.5) {
+  if (bestScore < AUTO_MATCH_THRESHOLD) {
     return null;
   }
 

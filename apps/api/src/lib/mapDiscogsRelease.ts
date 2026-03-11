@@ -1,3 +1,17 @@
+function parseDurationToSeconds(duration?: string) {
+  if (!duration) return undefined;
+
+  const trimmed = duration.trim();
+  const match = trimmed.match(/^(\d+):(\d{2})$/);
+
+  if (!match) return undefined;
+
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+
+  return minutes * 60 + seconds;
+}
+
 type DiscogsArtist = {
   name?: string;
   anv?: string;
@@ -67,6 +81,7 @@ export function mapDiscogsRelease(data: DiscogsReleaseResponse) {
       type_: t.type_ ?? undefined,
       title: t.title ?? undefined,
       duration: t.duration ?? undefined,
+      durationSeconds: parseDurationToSeconds(t.duration),
       artists: (t.artists ?? []).map((a) => ({
         name: a.name ?? undefined,
         anv: a.anv ?? undefined,

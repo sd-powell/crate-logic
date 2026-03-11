@@ -45,6 +45,7 @@ function toTrackFileDto(doc: any) {
     artist: doc.artist,
     bpm: doc.bpm,
     key: doc.key,
+    durationSeconds: doc.durationSeconds,
     source: doc.source,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt
@@ -120,7 +121,7 @@ async function findAndSaveBestMatchForTrackFile(trackFile: any, releases?: any[]
         matchType: bestMatch.matchType
       }
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
   ).lean();
 
   return saved;
@@ -168,7 +169,7 @@ app.post('/api/discogs/collection/import', async (_req, res) => {
         await DiscogsReleaseModel.findOneAndUpdate(
           { discogsReleaseId: releaseId },
           { $set: mapped },
-          { upsert: true, new: true, setDefaultsOnInsert: true }
+          { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
         );
 
         imported++;
@@ -359,7 +360,7 @@ app.post('/api/discogs/releases/:releaseId/import', async (req, res) => {
     const doc = await DiscogsReleaseModel.findOneAndUpdate(
       { discogsReleaseId: releaseId },
       { $set: mapped },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     ).lean();
 
     res.json(toDiscogsReleaseDto(doc));

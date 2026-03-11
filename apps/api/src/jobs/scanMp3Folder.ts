@@ -108,6 +108,10 @@ export async function scanMp3Folder({ rootFolder }: ScanOptions) {
       const artist = metadata.common.artist ?? undefined;
       const bpm = typeof metadata.common.bpm === 'number' ? metadata.common.bpm : undefined;
       const key = normaliseCamelotKey(extractKey(metadata));
+      const durationSeconds =
+        typeof metadata.format.duration === 'number'
+          ? Math.round(metadata.format.duration)
+          : undefined;
 
       await TrackFileModel.updateOne(
         { filePath },
@@ -118,6 +122,7 @@ export async function scanMp3Folder({ rootFolder }: ScanOptions) {
             artist,
             bpm,
             key,
+            durationSeconds,
             source: 'mixedinkey'
           }
         },

@@ -9,6 +9,7 @@ const trackFileSchema = new mongoose.Schema(
 
     bpm: { type: Number },
     key: { type: String, trim: true },
+    durationSeconds: { type: Number },
 
     source: { type: String, default: 'mixedinkey' }, // where bpm/key came from
   },

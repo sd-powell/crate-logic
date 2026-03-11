@@ -15,6 +15,7 @@ const discogsTrackSchema = new mongoose.Schema(
     type_: { type: String, trim: true },
     title: { type: String, trim: true },
     duration: { type: String, trim: true },
+    durationSeconds: { type: Number },
     artists: { type: [discogsArtistSchema], default: undefined }
   },
   { _id: false }
