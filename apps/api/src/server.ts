@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { CrateItemModel } from './models/CrateItem.js';
 import { scanMp3Folder } from './jobs/scanMp3Folder.js';
@@ -15,7 +17,10 @@ import { mapDiscogsRelease } from './lib/mapDiscogsRelease.js';
 import { TrackMatchModel } from './models/TrackMatch.js';
 import { matchTrackFileToRelease } from './lib/matchTrackFileToRelease.js';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 
